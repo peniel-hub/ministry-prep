@@ -1,0 +1,231 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Grade 8 Ministry Exam Prep</title>
+  <style>
+    :root { --primary: #2563eb; --bg: #f8fafc; --card: #ffffff; --text: #1e293b; }
+    body { font-family: system-ui, -apple-system, sans-serif; background: var(--bg); color: var(--text); margin: 0; padding: 16px; display: flex; justify-content: center; }
+    .container { max-width: 650px; width: 100%; background: var(--card); padding: 24px; border-radius: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.08); }
+    h1 { font-size: 1.4rem; margin-top: 0; color: var(--primary); }
+    label { display: block; font-weight: 600; margin: 12px 0 6px; font-size: 0.9rem; }
+    select, button { width: 100%; padding: 12px; border-radius: 8px; border: 1px solid #cbd5e1; font-size: 1rem; }
+    button { background: var(--primary); color: white; border: none; font-weight: 600; cursor: pointer; margin-top: 16px; }
+    button:hover { opacity: 0.92; }
+    .option-btn { background: #f1f5f9; color: var(--text); text-align: left; border: 1px solid #cbd5e1; margin-top: 8px; font-weight: 400; }
+    .option-btn.selected { background: #dbeafe; border-color: var(--primary); font-weight: 600; }
+    .option-btn.correct { background: #dcfce7; border-color: #16a34a; color: #14532d; }
+    .option-btn.wrong { background: #fee2e2; border-color: #dc2626; color: #7f1d1d; }
+    .explanation { background: #fef9c3; padding: 12px; border-radius: 8px; margin-top: 12px; font-size: 0.9rem; display: none; }
+    .header-bar { display: flex; justify-content: space-between; font-size: 0.9rem; color: #64748b; margin-bottom: 12px; }
+    .hidden { display: none; }
+    .badge { display: inline-block; padding: 4px 8px; background: #e2e8f0; border-radius: 6px; font-size: 0.8rem; margin-bottom: 8px; }
+  </style>
+</head>
+<body>
+
+<div class="container">
+  <!-- SETUP SCREEN -->
+  <div id="setup-screen">
+    <h1>Grade 8 Ministry Practice</h1>
+    <label for="subject-select">Select Subject</label>
+    <select id="subject-select"></select>
+
+    <label for="year-select">Select Exam Year</label>
+    <select id="year-select"></select>
+
+    <label for="mode-select">Practice Mode</label>
+    <select id="mode-select">
+      <option value="study">Study Mode (Instant feedback & explanations)</option>
+      <option value="exam">Exam Mode (Timed, score shown at the end)</option>
+    </select>
+
+    <button onclick="startQuiz()">Start Practice</button>
+  </div>
+
+  <!-- QUIZ SCREEN -->
+  <div id="quiz-screen" class="hidden">
+    <div class="header-bar">
+      <span id="progress-text">Question 1 of 10</span>
+      <span id="timer-text">Time: 00:00</span>
+    </div>
+    <span id="topic-badge" class="badge">Topic</span>
+    <h3 id="question-text"></h3>
+    <div id="options-container"></div>
+    <div id="explanation-box" class="explanation"></div>
+    <button id="next-btn" class="hidden" onclick="nextQuestion()">Next Question</button>
+  </div>
+
+  <!-- RESULT SCREEN -->
+  <div id="result-screen" class="hidden">
+    <h1>Exam Completed!</h1>
+    <p id="score-summary" style="font-size: 1.2rem; font-weight: bold;"></p>
+    <p id="weak-topics"></p>
+    <p id="sync-status" style="font-size: 0.85rem; color: #64748b;">Sending results to tutor...</p>
+    <button onclick="location.reload()">Take Another Test</button>
+  </div>
+</div>
+
+<!-- Load Questions -->
+<script src="questions.js"></script>
+<script>
+  // PASTE YOUR GOOGLE APPS SCRIPT WEB APP URL BELOW
+  const GOOGLE_SHEET_URL = "https://script.google.com/macros/s/AKfycbyuNkhFQsdGXqy-hrUJg3B6e3vQtMuOI2kwC6ePIjNdjpmW_a0jgnm3EU8STJEAn0H9Aw/exec";
+
+  let filteredQuestions = [];
+  let currentIndex = 0;
+  let score = 0;
+  let missedTopics = [];
+  let selectedOption = null;
+  let mode = "study";
+  let secondsElapsed = 0;
+  let timerInterval;
+
+  // Populate dropdowns automatically from questions.js
+  window.onload = () => {
+    const subjects = ["All Subjects", ...new Set(EXAM_DATA.map(q => q.subject))];
+    const years = ["All Years", ...new Set(EXAM_DATA.map(q => q.year))];
+    
+    const subSelect = document.getElementById("subject-select");
+    subjects.forEach(s => subSelect.innerHTML += `<option value="${s}">${s}</option>`);
+
+    const yrSelect = document.getElementById("year-select");
+    years.forEach(y => yrSelect.innerHTML += `<option value="${y}">${y}</option>`);
+  };
+
+  function startQuiz() {
+    const sub = document.getElementById("subject-select").value;
+    const yr = document.getElementById("year-select").value;
+    mode = document.getElementById("mode-select").value;
+
+    filteredQuestions = EXAM_DATA.filter(q => 
+      (sub === "All Subjects" || q.subject === sub) &&
+      (yr === "All Years" || q.year === yr)
+    );
+
+    if (filteredQuestions.length === 0) {
+      alert("No questions found for this selection.");
+      return;
+    }
+
+    document.getElementById("setup-screen").classList.add("hidden");
+    document.getElementById("quiz-screen").classList.remove("hidden");
+    
+    timerInterval = setInterval(() => {
+      secondsElapsed++;
+      const mins = String(Math.floor(secondsElapsed / 60)).padStart(2, '0');
+      const secs = String(secondsElapsed % 60).padStart(2, '0');
+      document.getElementById("timer-text").innerText = `Time: ${mins}:${secs}`;
+    }, 1000);
+
+    loadQuestion();
+  }
+
+  function loadQuestion() {
+    selectedOption = null;
+    const q = filteredQuestions[currentIndex];
+    document.getElementById("progress-text").innerText = `Question ${currentIndex + 1} of ${filteredQuestions.length}`;
+    document.getElementById("topic-badge").innerText = `${q.subject} • ${q.topic}`;
+    document.getElementById("question-text").innerText = q.question;
+    
+    const expBox = document.getElementById("explanation-box");
+    expBox.style.display = "none";
+    expBox.innerText = q.explanation;
+
+    const container = document.getElementById("options-container");
+    container.innerHTML = "";
+    q.options.forEach((opt, idx) => {
+      const btn = document.createElement("button");
+      btn.className = "option-btn";
+      btn.innerText = `${String.fromCharCode(65 + idx)}. ${opt}`;
+      btn.onclick = () => handleSelect(idx, btn);
+      container.appendChild(btn);
+    });
+
+    document.getElementById("next-btn").classList.add("hidden");
+  }
+
+  function handleSelect(idx, btnElement) {
+    if (mode === "study" && selectedOption !== null) return; // Lock answer in study mode
+
+    selectedOption = idx;
+    const q = filteredQuestions[currentIndex];
+    const allBtns = document.querySelectorAll(".option-btn");
+
+    if (mode === "study") {
+      allBtns.forEach((b, i) => {
+        if (i === q.answer) b.classList.add("correct");
+        else if (i === idx) b.classList.add("wrong");
+      });
+      document.getElementById("explanation-box").style.display = "block";
+    } else {
+      allBtns.forEach(b => b.classList.remove("selected"));
+      btnElement.classList.add("selected");
+    }
+
+    document.getElementById("next-btn").classList.remove("hidden");
+  }
+
+  function nextQuestion() {
+    const q = filteredQuestions[currentIndex];
+    if (selectedOption === q.answer) {
+      score++;
+    } else {
+      missedTopics.push(`${q.subject}: ${q.topic}`);
+    }
+
+    currentIndex++;
+    if (currentIndex < filteredQuestions.length) {
+      loadQuestion();
+    } else {
+      finishQuiz();
+    }
+  }
+
+  function finishQuiz() {
+    clearInterval(timerInterval);
+    document.getElementById("quiz-screen").classList.add("hidden");
+    document.getElementById("result-screen").classList.remove("hidden");
+
+    const percent = Math.round((score / filteredQuestions.length) * 100);
+    const sub = document.getElementById("subject-select").value;
+    const yr = document.getElementById("year-select").value;
+    const uniqueWeak = [...new Set(missedTopics)].join(", ") || "None! Great job!";
+
+    document.getElementById("score-summary").innerText = `Score: ${score}/${filteredQuestions.length} (${percent}%)`;
+    document.getElementById("weak-topics").innerText = `Topics to review: ${uniqueWeak}`;
+
+    sendResultsToTutor({
+      date: new Date().toLocaleString(),
+      subject: sub,
+      year: yr,
+      mode: mode,
+      score: `${score}/${filteredQuestions.length} (${percent}%)`,
+      timeSeconds: secondsElapsed,
+      weakTopics: uniqueWeak
+    });
+  }
+
+  function sendResultsToTutor(payload) {
+    if (!GOOGLE_SHEET_URL.startsWith("http")) {
+      document.getElementById("sync-status").innerText = "Offline mode: Take a screenshot to send to your tutor.";
+      return;
+    }
+
+    fetch(GOOGLE_SHEET_URL, {
+      method: "POST",
+      mode: "no-cors",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload)
+    })
+    .then(() => {
+      document.getElementById("sync-status").innerText = "✓ Progress saved automatically for your tutor!";
+    })
+    .catch(() => {
+      document.getElementById("sync-status").innerText = "Could not sync online. Please screenshot this page.";
+    });
+  }
+</script>
+</body>
+</html>
